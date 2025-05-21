@@ -1,0 +1,450 @@
+openapi: 3.0.0
+info:
+  title: XWZ LTD Parking Management System API
+  version: 1.0.0
+  description: API documentation for the parking management system
+
+servers:
+  - url: http://localhost:5000/api
+    description: Development server
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    User:
+      type: object
+      required:
+        - firstName
+        - lastName
+        - email
+        - password
+        - role
+      properties:
+        firstName:
+          type: string
+          description: User's first name
+        lastName:
+          type: string
+          description: User's last name
+        email:
+          type: string
+          format: email
+          description: User's email address
+        password:
+          type: string
+          format: password
+          description: User's password (min 6 characters)
+        role:
+          type: string
+          enum: [admin, parking_attendant, driver]
+          description: User's role in the system
+
+    Parking:
+      type: object
+      required:
+        - code
+        - name
+        - availableSpaces
+        - location
+        - chargingFeesPerHour
+      properties:
+        code:
+          type: string
+          description: Unique parking lot code
+        name:
+          type: string
+          description: Parking lot name
+        availableSpaces:
+          type: integer
+          minimum: 0
+          description: Number of available parking spaces
+        location:
+          type: string
+          description: Parking lot location
+        chargingFeesPerHour:
+          type: number
+          minimum: 0
+          description: Charging fee per hour in RWF
+
+    CarEntry:
+      type: object
+      required:
+        - plateNumber
+        - parking
+        - entryTime
+      properties:
+        plateNumber:
+          type: string
+          description: Vehicle's plate number
+        parking:
+          type: string
+          description: Reference to parking lot
+        entryTime:
+          type: string
+          format: date-time
+          description: Entry time
+        exitTime:
+          type: string
+          format: date-time
+          nullable: true
+          description: Exit time (null if car is still parked)
+        status:
+          type: string
+          enum: [active, completed]
+          description: Entry status
+        fee:
+          type: number
+          minimum: 0
+          description: Charged amount in RWF
+
+paths:
+  /users/register:
+    post:
+      tags:
+        - Authentication
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User'
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  token:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/User'
+        '400':
+          description: Invalid input
+        '500':
+          description: Server error
+
+  /users/login:
+    post:
+      tags:
+        - Authentication
+      summary: Login user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  token:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: Invalid credentials
+        '500':
+          description: Server error
+
+  /parking:
+    get:
+      tags:
+        - Parking
+      summary: Get all parking lots
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+          description: Page number
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 10
+          description: Items per page
+      responses:
+        '200':
+          description: List of parking lots
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Parking'
+                  pagination:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      page:
+                        type: integer
+                      pages:
+                        type: integer
+        '401':
+          description: Unauthorized
+        '500':
+          description: Server error
+
+    post:
+      tags:
+        - Parking
+      summary: Create new parking lot
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Parking'
+      responses:
+        '201':
+          description: Parking lot created
+        '400':
+          description: Invalid input
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden (admin only)
+        '500':
+          description: Server error
+
+  /car-entry/entry:
+    post:
+      tags:
+        - Car Entry/Exit
+      summary: Record car entry
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - plateNumber
+                - parkingCode
+              properties:
+                plateNumber:
+                  type: string
+                parkingCode:
+                  type: string
+      responses:
+        '201':
+          description: Entry recorded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ticket:
+                    type: string
+                  entry:
+                    $ref: '#/components/schemas/CarEntry'
+        '400':
+          description: Invalid input
+        '401':
+          description: Unauthorized
+        '500':
+          description: Server error
+
+  /car-entry/exit/{id}:
+    patch:
+      tags:
+        - Car Entry/Exit
+      summary: Record car exit
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Exit recorded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bill:
+                    type: object
+                    properties:
+                      hours:
+                        type: number
+                      chargedAmount:
+                        type: number
+        '400':
+          description: Invalid input
+        '401':
+          description: Unauthorized
+        '404':
+          description: Entry not found
+        '500':
+          description: Server error
+
+  /report/outgoing:
+    get:
+      tags:
+        - Reports
+      summary: Get outgoing cars report
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: startDate
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: endDate
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Outgoing cars report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CarEntry'
+                  totalAmount:
+                    type: number
+                  pagination:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      page:
+                        type: integer
+                      pages:
+                        type: integer
+        '400':
+          description: Invalid date range
+        '401':
+          description: Unauthorized
+        '500':
+          description: Server error
+
+  /report/entered:
+    get:
+      tags:
+        - Reports
+      summary: Get entered cars report
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: startDate
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: endDate
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Entered cars report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CarEntry'
+                  statistics:
+                    type: object
+                    properties:
+                      totalEntries:
+                        type: integer
+                      currentlyParked:
+                        type: integer
+                      totalRevenue:
+                        type: number
+                      averageDuration:
+                        type: number
+                  pagination:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      page:
+                        type: integer
+                      pages:
+                        type: integer
+        '400':
+          description: Invalid date range
+        '401':
+          description: Unauthorized
+        '500':
+          description: Server error
